@@ -68,6 +68,8 @@ const POWERUP_CHANCE  = 0.15;  // probabilidad por asteroide destruido
 const POWERUP_TTL     = 8;     // segundos que el pickup queda en pantalla
 const TRIPLE_DURATION = 5;     // segundos de efecto
 const SPREAD          = 0.22;  // rad entre balas del abanico
+const SLOW_DURATION   = 6;     // segundos de cámara lenta
+const SLOW_FACTOR     = 0.5;   // multiplicador de velocidad de los asteroides
 
 class Asteroid {
   constructor(x, y, size = 3) {
@@ -251,9 +253,10 @@ class Particle {
 
 // ── PowerUp (pickup de disparo triple) ────────────────────────────────────────
 class PowerUp {
-  constructor(x, y) {
+  constructor(x, y, type = 'triple') {
     this.x = x;
     this.y = y;
+    this.type = type;  // 'triple' | 'slow'
     const angle = rand(0, Math.PI * 2);
     const speed = rand(20, 40);
     this.vx = Math.cos(angle) * speed;
@@ -273,16 +276,17 @@ class PowerUp {
   draw() {
     // Parpadeo cuando está por expirar
     if (this.ttl < 2 && Math.floor(this.ttl * 6) % 2 === 0) return;
-    ctx.strokeStyle = '#ff8200';
+    const color = this.type === 'slow' ? '#00d0ff' : '#ff8200';
+    ctx.strokeStyle = color;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle    = '#ff8200';
+    ctx.fillStyle    = color;
     ctx.font         = 'bold 13px monospace';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('3', this.x, this.y + 1);
+    ctx.fillText(this.type === 'slow' ? 'S' : '3', this.x, this.y + 1);
     ctx.textBaseline = 'alphabetic';
   }
 }
@@ -290,7 +294,7 @@ class PowerUp {
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles;
 let score, lives, level;
-let powerUp, powerUpSpawned, tripleShotTimer;
+let powerUp, powerUpSpawned, tripleShotTimer, slowMoTimer;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 
@@ -317,6 +321,7 @@ function initGame() {
   powerUp         = null;
   powerUpSpawned  = false;
   tripleShotTimer = 0;
+  slowMoTimer     = 0;
   state  = 'playing';
   spawnAsteroids(4);
 }
@@ -338,6 +343,7 @@ function killShip() {
   explode(ship.x, ship.y, 14);
   ship.dead = true;
   tripleShotTimer = 0;
+  slowMoTimer     = 0;
   lives--;
   if (lives <= 0) {
     state = 'gameover';
@@ -375,10 +381,12 @@ function update(dt) {
   }
 
   if (tripleShotTimer > 0) tripleShotTimer -= dt;
+  const asteroidDt = slowMoTimer > 0 ? dt * SLOW_FACTOR : dt;
+  if (slowMoTimer > 0) slowMoTimer -= dt;
 
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
-  asteroids.forEach(a => a.update(dt));
+  asteroids.forEach(a => a.update(asteroidDt));
   particles.forEach(p => p.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
@@ -397,7 +405,7 @@ function update(dt) {
         // Power-up: una vez por nivel. Al azar, o forzado si quedan <= 2 asteroides
         const restantes = asteroids.filter(x => !x.dead).length + newAsteroids.length;
         if (!powerUpSpawned && (restantes <= 2 || Math.random() < POWERUP_CHANCE)) {
-          powerUp = new PowerUp(a.x, a.y);
+          powerUp = new PowerUp(a.x, a.y, Math.random() < 0.5 ? 'triple' : 'slow');
           powerUpSpawned = true;
         }
       }
@@ -412,7 +420,8 @@ function update(dt) {
     if (powerUp.dead) {
       powerUp = null;
     } else if (!ship.dead && dist(ship, powerUp) < ship.radius + powerUp.radius) {
-      tripleShotTimer = TRIPLE_DURATION;
+      if (powerUp.type === 'slow') slowMoTimer = SLOW_DURATION;
+      else tripleShotTimer = TRIPLE_DURATION;
       explode(powerUp.x, powerUp.y, 6);
       powerUp = null;
     }
@@ -463,10 +472,16 @@ function drawHUD() {
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
+  let hudY = 46;
+  ctx.textAlign = 'left';
   if (tripleShotTimer > 0) {
     ctx.fillStyle = '#ff8200';
-    ctx.textAlign = 'left';
-    ctx.fillText(`TRIPLE ${Math.ceil(tripleShotTimer)}s`, 14, 46);
+    ctx.fillText(`TRIPLE ${Math.ceil(tripleShotTimer)}s`, 14, hudY);
+    hudY += 20;
+  }
+  if (slowMoTimer > 0) {
+    ctx.fillStyle = '#00d0ff';
+    ctx.fillText(`LENTO ${Math.ceil(slowMoTimer)}s`, 14, hudY);
   }
 
 }
